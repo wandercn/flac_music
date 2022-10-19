@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::{fs, io};
+
 use druid::im::vector;
 use druid::piet::Text;
 use druid::text::TextInput;
@@ -6,10 +9,12 @@ use druid::widget::{
 };
 use druid::widget::{CrossAxisAlignment, List};
 use druid::widget::{Flex, ProgressBar};
-use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
 use druid::{
-    AppDelegate, Color, Command, DelegateCtx, Handled, MenuDesc, Target, TextAlignment, WidgetExt,
+    commands, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
+    LocalizedString, MenuDesc, MenuItem, SysMods, Target, TextAlignment, WidgetExt,
 };
+use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
+use gostd::path;
 
 fn main() {
     let win = WindowDesc::new(ui_builder)
@@ -53,6 +58,7 @@ fn main() {
             s
         ],
         search_text: "search".into(),
+        music_dir: "".to_owned(),
     };
     let app = AppLauncher::with_window(win)
         .use_simple_logger()
@@ -72,26 +78,114 @@ impl AppDelegate<AppState> for MenuDelegate {
         env: &Env,
     ) -> Handled {
         if let Some(e) = cmd.get(druid::commands::OPEN_FILE) {
+            data.music_dir.clear();
             let path = e.path();
             println!("file path: {:?}", path.display());
+            // let paths = path
+            //     .display()
+            //     .to_string()
+            //     .as_str()
+            //     .split("/")
+            //     .map(|x| x.to_string())
+            //     .collect::<Vec<String>>();
+            // let length = paths.len();
+            // for v in paths[0_usize..(length - 1_usize)].iter() {
+            //     data.music_dir.push_str(v);
+            //     data.music_dir.push_str("/");
+            // }
+            data.music_dir = path.display().to_string();
+            println!("{}", data.music_dir);
             return Handled::Yes;
         }
         Handled::No
     }
 }
-
+fn load_files(dir: &str) -> Result<Vec<String>, io::Error> {
+    let dir = Path::new(dir);
+    let mut files: Vec<String> = fs::read_dir(dir)
+        .expect("load files failed")
+        .map(|res| res.map(|e| e.path()))
+        .collect()?;
+    files.sort();
+    files
+}
 fn make_menu<T: Data>() -> MenuDesc<T> {
     let mut base = MenuDesc::empty();
     #[cfg(target_os = "macos")]
     {
-        base = druid::platform_menus::mac::menu_bar();
+        // base = base.append(druid::platform_menus::mac::menu_bar());
+        base = MenuDesc::empty()
+            .append(
+                MenuDesc::new(LocalizedString::new("flac-music-application-menu")).append(
+                    MenuItem::new(LocalizedString::new("Quit Flac Music"), commands::QUIT_APP),
+                ),
+            )
+            .append_separator()
+            .append(
+                MenuDesc::new(LocalizedString::new("文件")).append(
+                    MenuItem::new(
+                        LocalizedString::new("导入"),
+                        commands::SHOW_OPEN_PANEL
+                            .with(FileDialogOptions::default().select_directories()),
+                    )
+                    .hotkey(SysMods::Cmd, "o"),
+                ),
+            )
+            .append_separator();
     }
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
-        base = base.append(druid::platform_menus::win::file::default())
+        base = MenuDesc::empty()
+            .append(
+                MenuDesc::new(LocalizedString::new("flac-music-menu-file-menu")).append(
+                    MenuItem::new(LocalizedString::new("Quit Flac Music"), commands::QUIT_APP),
+                ),
+            )
+            .append_separator()
+            .append(
+                MenuDesc::new(LocalizedString::new("文件")).append(
+                    MenuItem::new(
+                        LocalizedString::new("导入"),
+                        commands::SHOW_OPEN_PANEL
+                            .with(FileDialogOptions::default().select_directories()),
+                    )
+                    .hotkey(SysMods::Cmd, "o"),
+                ),
+            )
+            .append_separator();
+        // base = base.append(druid::platform_menus::win::file::default())
     }
     base
 }
+
+// fn make_menu<T: Data>() -> MenuDesc<T> {
+//     let base = MenuDesc::new(LocalizedString::new(""))
+//         .append(
+//             MenuItem::new(
+//                 LocalizedString::new("common-menu-file-open"),
+//                 commands::SHOW_OPEN_PANEL.with(FileDialogOptions::default()),
+//             )
+//             .hotkey(SysMods::Cmd, "o"),
+//         )
+//         .append(MenuItem::new(
+//             LocalizedString::new("macos-menu-about-app"),
+//             commands::SHOW_ABOUT,
+//         ));
+//     base
+//     // MenuDesc::new(LocalizedString::new("macos-menu-application-menu"))
+//     //     .append(MenuItem::new(
+//     //         LocalizedString::new("macos-menu-about-app"),
+//     //         commands::SHOW_ABOUT,
+//     //     ))
+//     //     .append(
+//     //         MenuItem::new(
+//     //             LocalizedString::new("macos-menu-quit-app"),
+//     //             commands::QUIT_APP,
+//     //         )
+//     //         .hotkey(SysMods::Cmd, "q"),
+//     //     )
+//     //     .append()
+// }
 
 fn ui_builder() -> impl Widget<AppState> {
     let vol = Flex::row()
@@ -158,6 +252,7 @@ fn ui_builder() -> impl Widget<AppState> {
 }
 #[derive(Data, Lens, Clone)]
 struct AppState {
+    music_dir: String,
     app_status: Status,
     play_lists: Vector<PlayList>,
     current_song: Current,
