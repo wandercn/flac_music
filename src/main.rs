@@ -95,6 +95,7 @@ impl AppDelegate<AppState> for MenuDelegate {
             // }
             data.music_dir = path.display().to_string();
             println!("{}", data.music_dir);
+            load_files(&data.music_dir);
             return Handled::Yes;
         }
         Handled::No
@@ -102,12 +103,13 @@ impl AppDelegate<AppState> for MenuDelegate {
 }
 fn load_files(dir: &str) -> Result<Vec<String>, io::Error> {
     let dir = Path::new(dir);
-    let mut files: Vec<String> = fs::read_dir(dir)
-        .expect("load files failed")
-        .map(|res| res.map(|e| e.path()))
-        .collect()?;
+    let mut files:Vec<String> = fs::read_dir(dir).ok().unwrap()
+        .map(|res| res.ok().map(|e| e.path().display().to_string())).into_iter().map(|x|x.unwrap()).collect();
     files.sort();
-    files
+    for i in &files{
+    println!("list: {}",i.as_str());
+    }
+    Ok(files)
 }
 fn make_menu<T: Data>() -> MenuDesc<T> {
     let mut base = MenuDesc::empty();
