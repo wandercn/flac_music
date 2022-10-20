@@ -5,7 +5,8 @@ use druid::im::vector;
 use druid::piet::Text;
 use druid::text::TextInput;
 use druid::widget::{
-    prelude::*, Align, Button, Container, Label, LabelText, Padding, Scroll, Slider, Split, TextBox,
+    prelude::*, Align, Button, Container, Label, LabelText, ListIter, Padding, Scroll, Slider,
+    Split, TextBox,
 };
 use druid::widget::{CrossAxisAlignment, List};
 use druid::widget::{Flex, ProgressBar};
@@ -14,21 +15,14 @@ use druid::{
     LocalizedString, MenuDesc, MenuItem, SysMods, Target, TextAlignment, WidgetExt,
 };
 use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
-use gostd::path;
-
+use ffmpeg_next as ffmpeg;
 fn main() {
     let win = WindowDesc::new(ui_builder)
         .menu(make_menu())
         .title("Flac Music")
         .window_size((1200., 600.))
         .show_titlebar(true);
-    let s = Song {
-        title: "以父之名".to_owned(),
-        album: "叶惠美".to_owned(),
-        artist: "周杰伦".to_owned(),
-        date: "2003".to_owned(),
-        ..Default::default()
-    };
+
     let initState = AppState {
         app_status: Status::Stop,
         play_lists: Vector::new(),
@@ -36,27 +30,7 @@ fn main() {
         volume: 30.,
         progress_rate: 0.5,
         play_mode: Modes::Order,
-        current_play_list: vector![
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s.clone(),
-            s
-        ],
+        current_play_list: vector![],
         search_text: "search".into(),
         music_dir: "".to_owned(),
     };
@@ -95,21 +69,67 @@ impl AppDelegate<AppState> for MenuDelegate {
             // }
             data.music_dir = path.display().to_string();
             println!("{}", data.music_dir);
-            load_files(&data.music_dir);
+            data.current_play_list = load_files(&data.music_dir);
             return Handled::Yes;
         }
         Handled::No
     }
 }
-fn load_files(dir: &str) -> Result<Vec<String>, io::Error> {
+
+fn load_files(dir: &str) -> Vector<Song> {
+    let mut songs = vector![];
     let dir = Path::new(dir);
-    let mut files:Vec<String> = fs::read_dir(dir).ok().unwrap()
-        .map(|res| res.ok().map(|e| e.path().display().to_string())).into_iter().map(|x|x.unwrap()).collect();
+    let mut files: Vec<String> = fs::read_dir(dir)
+        .ok()
+        .unwrap()
+        .map(|res| res.ok().map(|e| e.path().display().to_string()))
+        .into_iter()
+        .map(|x| x.unwrap())
+        .filter(|x| is_music_file(x))
+        .collect();
     files.sort();
-    for i in &files{
-    println!("list: {}",i.as_str());
+    for i in &files {
+        let s = get_song_meta(i);
+        println!("song: {:?}", s);
+        songs.push_back(s);
     }
-    Ok(files)
+    songs
+}
+
+fn get_song_meta(f: &str) -> Song {
+    let mut song = Song::default();
+    ffmpeg::init().unwrap();
+
+    match ffmpeg::format::input(&Path::new(f)) {
+        Ok(context) => {
+            for (k, v) in context.metadata().iter() {
+                let k_lower = k.to_lowercase();
+                match k_lower.as_str() {
+                    "title" => song.title = v.to_string(),
+                    "album" => song.album = v.to_string(),
+                    "artist" => song.artist = v.to_string(),
+                    "date" => song.date = v.to_string(),
+                    _ => (),
+                }
+            }
+            song.duration =
+                (context.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)).round();
+        }
+        Err(error) => (),
+    }
+
+    song.file = f.to_string();
+    song
+}
+
+fn is_music_file(f: &str) -> bool {
+    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".m4a", ".ogg", ".wav", ".ape"];
+    for x in &music_exts {
+        if f.ends_with(x) {
+            return true;
+        }
+    }
+    return false;
 }
 fn make_menu<T: Data>() -> MenuDesc<T> {
     let mut base = MenuDesc::empty();
@@ -290,7 +310,7 @@ enum Modes {
     Repet,
 }
 
-#[derive(Data, Lens, Default, Clone)]
+#[derive(Data, Lens, Default, Clone, Debug)]
 struct Song {
     title: String,
     artist: String,
@@ -314,7 +334,13 @@ fn make_item() -> impl Widget<Song> {
             .fix_width(80.0),
         )
         .with_spacer(50.0)
-        .with_child(Label::dynamic(|d: &Song, _| d.title.to_owned()).fix_width(120.0))
+        .with_child(
+            Label::dynamic(|d: &Song, _| d.title.to_owned())
+                .fix_width(120.0)
+                .on_click(|ctx, data, env| {
+                    data.playing = true;
+                }),
+        )
         .with_spacer(100.0)
         .with_child(Label::dynamic(|d: &Song, _| d.album.to_owned()).fix_width(120.0))
         .with_spacer(100.0)
