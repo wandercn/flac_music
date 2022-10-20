@@ -339,6 +339,7 @@ fn make_item() -> impl Widget<Song> {
                 .fix_width(120.0)
                 .on_click(|ctx, data, env| {
                     data.playing = true;
+                    play(&data.file);
                 }),
         )
         .with_spacer(100.0)
@@ -350,4 +351,15 @@ fn make_item() -> impl Widget<Song> {
         .with_spacer(100.0)
         .with_child(Label::dynamic(|d: &Song, _| d.duration.to_string()).fix_width(120.0))
         .with_spacer(100.0)
+}
+    
+use std::io::BufReader;
+fn play(f:&str){
+    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+    let sink = rodio::Sink::try_new(&handle).unwrap();
+
+    let file = std::fs::File::open(f).unwrap();
+    sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
+
+    sink.sleep_until_end();
 }
