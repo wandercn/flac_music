@@ -1,7 +1,12 @@
+use std::io::BufReader;
 use std::path::Path;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::thread::spawn;
 use std::{fs, io};
 
 use druid::im::vector;
+
 use druid::piet::Text;
 use druid::text::TextInput;
 use druid::widget::{
@@ -16,6 +21,7 @@ use druid::{
 };
 use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
 use ffmpeg_next as ffmpeg;
+use rodio::OutputStreamHandle;
 fn main() {
     let win = WindowDesc::new(ui_builder)
         .menu(make_menu())
@@ -23,16 +29,20 @@ fn main() {
         .window_size((1200., 600.))
         .show_titlebar(true);
 
+    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+    let sink = Rc::new(rodio::Sink::try_new(&handle).unwrap());
     let initState = AppState {
         app_status: Status::Stop,
         play_lists: Vector::new(),
-        current_song: Current::default(),
+        current_song: Song::default(),
         volume: 30.,
         progress_rate: 0.5,
         play_mode: Modes::Order,
         current_play_list: vector![],
         search_text: "search".into(),
         music_dir: "".to_owned(),
+        sink: sink,
+        stream: Arc::new(handle),
     };
     let app = AppLauncher::with_window(win)
         .use_simple_logger()
@@ -55,18 +65,6 @@ impl AppDelegate<AppState> for MenuDelegate {
             data.music_dir.clear();
             let path = e.path();
             println!("file path: {:?}", path.display());
-            // let paths = path
-            //     .display()
-            //     .to_string()
-            //     .as_str()
-            //     .split("/")
-            //     .map(|x| x.to_string())
-            //     .collect::<Vec<String>>();
-            // let length = paths.len();
-            // for v in paths[0_usize..(length - 1_usize)].iter() {
-            //     data.music_dir.push_str(v);
-            //     data.music_dir.push_str("/");
-            // }
             data.music_dir = path.display().to_string();
             println!("{}", data.music_dir);
             data.current_play_list = load_files(&data.music_dir);
@@ -180,54 +178,57 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
     base
 }
 
-// fn make_menu<T: Data>() -> MenuDesc<T> {
-//     let base = MenuDesc::new(LocalizedString::new(""))
-//         .append(
-//             MenuItem::new(
-//                 LocalizedString::new("common-menu-file-open"),
-//                 commands::SHOW_OPEN_PANEL.with(FileDialogOptions::default()),
-//             )
-//             .hotkey(SysMods::Cmd, "o"),
-//         )
-//         .append(MenuItem::new(
-//             LocalizedString::new("macos-menu-about-app"),
-//             commands::SHOW_ABOUT,
-//         ));
-//     base
-//     // MenuDesc::new(LocalizedString::new("macos-menu-application-menu"))
-//     //     .append(MenuItem::new(
-//     //         LocalizedString::new("macos-menu-about-app"),
-//     //         commands::SHOW_ABOUT,
-//     //     ))
-//     //     .append(
-//     //         MenuItem::new(
-//     //             LocalizedString::new("macos-menu-quit-app"),
-//     //             commands::QUIT_APP,
-//     //         )
-//     //         .hotkey(SysMods::Cmd, "q"),
-//     //     )
-//     //     .append()
-// }
-
 fn ui_builder() -> impl Widget<AppState> {
     let vol = Flex::row()
         .with_child(Label::new("Volume"))
-        .with_child(Slider::new().with_range(1.0, 100.).lens(AppState::volume))
+        .with_child(
+            Slider::new()
+                .with_range(0.0, 1.)
+                .lens(AppState::volume)
+                .on_click(|_ctx, data, _env| {
+                    data.sink.set_volume(data.volume as f32);
+                    println!("音量大小: {}", data.volume);
+                }),
+        )
         .align_right()
         .padding(10.0);
-    let SearchText = TextBox::new()
+    let search_text = TextBox::new()
         .with_text_alignment(TextAlignment::Center)
         .padding(10.0)
         .lens(AppState::search_text);
-    let ContrlTab = Container::new(
+    let contrl_tab = Container::new(
         Flex::row()
             .with_child(Button::new("|<<"))
             .with_default_spacer()
-            .with_child(Button::new("Play"))
+            .with_child(Button::new("Play").lens(AppState::current_song).on_click(
+                |_ctx, data, _env| {
+                    if data.sink.is_paused() {
+                        data.sink.play();
+                    } else {
+                        if data.sink.len() == 1 || data.sink.empty() {
+                            println!("sink empty: {}", data.sink.len());
+                            data.sink = Rc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                            set_paly_song(&data.current_song.file, &mut data.sink)
+                        } else {
+                            data.sink.play();
+                            println!("sink : {}", data.sink.len())
+                        }
+                    }
+                    println!("playing: {}", data.current_song.title);
+                },
+            ))
             .with_default_spacer()
-            .with_child(Button::new("Pause"))
+            .with_child(Button::new("Pause").lens(AppState::current_song).on_click(
+                |_ctx, data, _env| {
+                    data.sink.pause();
+                },
+            ))
             .with_default_spacer()
-            .with_child(Button::new("Stop"))
+            .with_child(Button::new("Stop").lens(AppState::current_song).on_click(
+                |_ctx, data, _env| {
+                    data.sink.stop();
+                },
+            ))
             .with_default_spacer()
             .with_child(Button::new(">>|"))
             .with_default_spacer()
@@ -243,7 +244,7 @@ fn ui_builder() -> impl Widget<AppState> {
         .lens(AppState::progress_rate);
 
     let playlab = Flex::column()
-        .with_child(Flex::row().with_child(SearchText).with_child(ContrlTab))
+        .with_child(Flex::row().with_child(search_text).with_child(contrl_tab))
         .with_default_spacer();
     let play_list_header = vector!["Playing", "Title", "Album", "Artist", "Date", "duration"];
     let mut header: Flex<AppState> = Flex::row()
@@ -255,9 +256,8 @@ fn ui_builder() -> impl Widget<AppState> {
         header.add_spacer(180.0);
     }
 
-    let playList = Scroll::new(
+    let play_list = Scroll::new(
         Flex::column()
-            // .with_child(header)
             .with_default_spacer()
             .cross_axis_alignment(CrossAxisAlignment::Start)
             .with_flex_child(
@@ -269,20 +269,44 @@ fn ui_builder() -> impl Widget<AppState> {
     .vertical();
 
     Container::new(
-        Split::rows(playlab, Split::rows(header, playList).split_point(0.05)).split_point(0.1),
+        Split::rows(
+            playlab,
+            Split::rows(header, play_list)
+                .split_point(0.05)
+                .on_click(|_ctx, data, _env| {
+                    for x in data.current_play_list.iter_mut() {
+                        if x.playing {
+                            data.current_song = Song {
+                                title: x.title.to_string(),
+                                album: x.album.to_string(),
+                                artist: x.artist.to_string(),
+                                file: x.file.to_string(),
+                                date: x.date.to_string(),
+                                duration: x.duration,
+                                playing: x.playing,
+                            };
+                            x.playing = false;
+                        }
+                    }
+                }),
+        )
+        .split_point(0.1),
     )
 }
+
 #[derive(Data, Lens, Clone)]
 struct AppState {
     music_dir: String,
     app_status: Status,
     play_lists: Vector<PlayList>,
-    current_song: Current,
+    current_song: Song,
+    sink: Rc<rodio::Sink>,
     progress_rate: f64,
     current_play_list: Vector<Song>,
     volume: f64,
     play_mode: Modes,
     search_text: String,
+    stream: Arc<OutputStreamHandle>,
 }
 
 #[derive(Clone, Data, PartialEq)]
@@ -291,6 +315,7 @@ enum Status {
     Suspend,
     Stop,
 }
+
 #[derive(Data, Lens, Default, Clone)]
 struct PlayList {
     name: String,
@@ -303,6 +328,7 @@ struct Current {
 
     cover_image: String,
 }
+
 #[derive(Clone, Data, PartialEq)]
 enum Modes {
     Order,
@@ -337,9 +363,8 @@ fn make_item() -> impl Widget<Song> {
         .with_child(
             Label::dynamic(|d: &Song, _| d.title.to_owned())
                 .fix_width(120.0)
-                .on_click(|ctx, data, env| {
+                .on_click(move |_ctx, data, _env| {
                     data.playing = true;
-                    play(&data.file);
                 }),
         )
         .with_spacer(100.0)
@@ -352,14 +377,8 @@ fn make_item() -> impl Widget<Song> {
         .with_child(Label::dynamic(|d: &Song, _| d.duration.to_string()).fix_width(120.0))
         .with_spacer(100.0)
 }
-    
-use std::io::BufReader;
-fn play(f:&str){
-    let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-    let sink = rodio::Sink::try_new(&handle).unwrap();
 
+fn set_paly_song(f: &str, sink: &mut Rc<rodio::Sink>) {
     let file = std::fs::File::open(f).unwrap();
     sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
-
-    sink.sleep_until_end();
 }
