@@ -286,6 +286,11 @@ fn ui_builder() -> impl Widget<AppState> {
                                 duration: x.duration,
                                 playing: x.playing,
                             };
+
+                            data.sink = Rc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                            data.sink.set_volume(data.volume as f32);
+                            set_paly_song(&data.current_song.file, &mut data.sink);
+
                             x.playing = false;
                         }
                     }
@@ -349,34 +354,37 @@ struct Song {
 }
 
 fn make_item() -> impl Widget<Song> {
-    Flex::row()
-        .with_child(
-            Label::dynamic(|d: &Song, _| {
-                if d.playing {
-                    "playing".to_owned()
-                } else {
-                    "".to_owned()
-                }
-            })
-            .fix_width(80.0),
-        )
-        .with_spacer(50.0)
-        .with_child(
-            Label::dynamic(|d: &Song, _| d.title.to_owned())
-                .fix_width(120.0)
-                .on_click(move |_ctx, data, _env| {
-                    data.playing = true;
-                }),
-        )
-        .with_spacer(100.0)
-        .with_child(Label::dynamic(|d: &Song, _| d.album.to_owned()).fix_width(120.0))
-        .with_spacer(100.0)
-        .with_child(Label::dynamic(|d: &Song, _| d.artist.to_owned()).fix_width(120.0))
-        .with_spacer(100.0)
-        .with_child(Label::dynamic(|d: &Song, _| d.date.to_owned()).fix_width(120.0))
-        .with_spacer(100.0)
-        .with_child(Label::dynamic(|d: &Song, _| d.duration.to_string()).fix_width(120.0))
-        .with_spacer(100.0)
+    Padding::new(
+        5.0,
+        Flex::row()
+            .with_child(
+                Label::dynamic(|d: &Song, _| {
+                    if d.playing {
+                        "playing".to_owned()
+                    } else {
+                        "".to_owned()
+                    }
+                })
+                .fix_width(80.0),
+            )
+            .with_spacer(50.0)
+            .with_child(
+                Label::dynamic(|d: &Song, _| d.title.to_owned())
+                    .fix_width(120.0)
+                    .on_click(move |_ctx, data, _env| {
+                        data.playing = true;
+                    }),
+            )
+            .with_spacer(100.0)
+            .with_child(Label::dynamic(|d: &Song, _| d.album.to_owned()).fix_width(120.0))
+            .with_spacer(100.0)
+            .with_child(Label::dynamic(|d: &Song, _| d.artist.to_owned()).fix_width(120.0))
+            .with_spacer(100.0)
+            .with_child(Label::dynamic(|d: &Song, _| d.date.to_owned()).fix_width(120.0))
+            .with_spacer(100.0)
+            .with_child(Label::dynamic(|d: &Song, _| d.duration.to_string()).fix_width(120.0))
+            .with_spacer(100.0),
+    )
 }
 
 fn set_paly_song(f: &str, sink: &mut Rc<rodio::Sink>) {
