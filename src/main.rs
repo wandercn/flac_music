@@ -35,7 +35,7 @@ fn main() {
         app_status: Status::Stop,
         play_lists: Vector::new(),
         current_song: Song::default(),
-        volume: 30.,
+        volume: 0.3,
         progress_rate: 0.5,
         play_mode: Modes::Order,
         current_play_list: vector![],
@@ -208,6 +208,7 @@ fn ui_builder() -> impl Widget<AppState> {
                         if data.sink.len() == 1 || data.sink.empty() {
                             println!("sink empty: {}", data.sink.len());
                             data.sink = Rc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                            data.sink.set_volume(data.volume as f32);
                             set_paly_song(&data.current_song.file, &mut data.sink)
                         } else {
                             data.sink.play();
