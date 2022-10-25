@@ -73,6 +73,35 @@ impl AppDelegate<AppState> for MenuDelegate {
         }
         Handled::No
     }
+
+    fn event(
+        &mut self,
+        ctx: &mut DelegateCtx,
+        window_id: druid::WindowId,
+        event: Event,
+        data: &mut AppState,
+        env: &Env,
+    ) -> Option<Event> {
+        Some(event)
+    }
+
+    fn window_added(
+        &mut self,
+        id: druid::WindowId,
+        data: &mut AppState,
+        env: &Env,
+        ctx: &mut DelegateCtx,
+    ) {
+    }
+
+    fn window_removed(
+        &mut self,
+        id: druid::WindowId,
+        data: &mut AppState,
+        env: &Env,
+        ctx: &mut DelegateCtx,
+    ) {
+    }
 }
 
 fn load_files(dir: &str) -> Vector<Song> {
@@ -143,9 +172,9 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
             )
             .append_separator()
             .append(
-                MenuDesc::new(LocalizedString::new("文件")).append(
+                MenuDesc::new(LocalizedString::new("File")).append(
                     MenuItem::new(
-                        LocalizedString::new("导入"),
+                        LocalizedString::new("Import"),
                         commands::SHOW_OPEN_PANEL
                             .with(FileDialogOptions::default().select_directories()),
                     )
@@ -164,9 +193,9 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
             )
             .append_separator()
             .append(
-                MenuDesc::new(LocalizedString::new("文件")).append(
+                MenuDesc::new(LocalizedString::new("File")).append(
                     MenuItem::new(
-                        LocalizedString::new("导入"),
+                        LocalizedString::new("Import"),
                         commands::SHOW_OPEN_PANEL
                             .with(FileDialogOptions::default().select_directories()),
                     )
@@ -258,9 +287,9 @@ fn ui_builder() -> impl Widget<AppState> {
             .with_default_spacer()
             .with_child(vol)
             .with_default_spacer()
-            .padding(2.0)
-            .center(),
-    );
+            .padding(2.0),
+    )
+    .center();
 
     let progress = Slider::new()
         .with_range(0.0, 100.0)
@@ -268,7 +297,7 @@ fn ui_builder() -> impl Widget<AppState> {
         .lens(AppState::progress_rate);
 
     let playlab = Flex::column()
-        .with_child(Flex::row().with_child(search_text).with_child(contrl_tab))
+        .with_child(Flex::row().with_child(contrl_tab))
         .with_default_spacer();
     let play_list_header = vector!["Playing", "Title", "Album", "Artist", "Date", "duration"];
     let mut header: Flex<AppState> = Flex::row()
