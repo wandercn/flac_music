@@ -2,7 +2,8 @@ use std::io::BufReader;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::thread::spawn;
+use std::thread::{self, spawn};
+use std::time::Duration;
 use std::{fs, io};
 
 use druid::im::vector;
@@ -30,7 +31,7 @@ fn main() {
         .show_titlebar(true);
 
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-    let sink = Rc::new(rodio::Sink::try_new(&handle).unwrap());
+    let sink = Arc::new(rodio::Sink::try_new(&handle).unwrap());
     let initState = AppState {
         app_status: Status::Stop,
         play_lists: Vector::new(),
@@ -198,16 +199,29 @@ fn ui_builder() -> impl Widget<AppState> {
         .lens(AppState::search_text);
     let contrl_tab = Container::new(
         Flex::row()
-            .with_child(Button::new("|<<"))
+            .with_child(Button::new("|<<").lens(AppState::current_song).on_click(
+                |_ctx, data, _env| {
+                    let current =
+                        get_prev_one(data.play_mode.to_owned(), &mut data.current_play_list);
+                    data.current_song = current;
+                    data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                    data.sink.set_volume(data.volume as f32);
+                    set_paly_song(&data.current_song.file, &mut data.sink)
+                },
+            ))
             .with_default_spacer()
             .with_child(Button::new("Play").lens(AppState::current_song).on_click(
                 |_ctx, data, _env| {
+                    if data.current_song.title.is_empty() {
+                        data.current_play_list[0].playing = true;
+                        data.current_song = data.current_play_list[0].clone();
+                    }
                     if data.sink.is_paused() {
                         data.sink.play();
                     } else {
                         if data.sink.len() == 1 || data.sink.empty() {
                             println!("sink empty: {}", data.sink.len());
-                            data.sink = Rc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                            data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
                             data.sink.set_volume(data.volume as f32);
                             set_paly_song(&data.current_song.file, &mut data.sink)
                         } else {
@@ -231,7 +245,16 @@ fn ui_builder() -> impl Widget<AppState> {
                 },
             ))
             .with_default_spacer()
-            .with_child(Button::new(">>|"))
+            .with_child(Button::new(">>|").lens(AppState::current_song).on_click(
+                |_ctx, data, _env| {
+                    let current =
+                        get_next_one(data.play_mode.to_owned(), &mut data.current_play_list);
+                    data.current_song = current;
+                    data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                    data.sink.set_volume(data.volume as f32);
+                    set_paly_song(&data.current_song.file, &mut data.sink)
+                },
+            ))
             .with_default_spacer()
             .with_child(vol)
             .with_default_spacer()
@@ -287,10 +310,9 @@ fn ui_builder() -> impl Widget<AppState> {
                                 playing: x.playing,
                             };
 
-                            data.sink = Rc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                            data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
                             data.sink.set_volume(data.volume as f32);
                             set_paly_song(&data.current_song.file, &mut data.sink);
-
                             x.playing = false;
                         }
                     }
@@ -306,7 +328,7 @@ struct AppState {
     app_status: Status,
     play_lists: Vector<PlayList>,
     current_song: Song,
-    sink: Rc<rodio::Sink>,
+    sink: Arc<rodio::Sink>,
     progress_rate: f64,
     current_play_list: Vector<Song>,
     volume: f64,
@@ -387,7 +409,60 @@ fn make_item() -> impl Widget<Song> {
     )
 }
 
-fn set_paly_song(f: &str, sink: &mut Rc<rodio::Sink>) {
+fn set_paly_song<'a>(f: &'a str, sink: &'a mut Arc<rodio::Sink>) {
     let file = std::fs::File::open(f).unwrap();
-    sink.append(rodio::Decoder::new(BufReader::new(file)).unwrap());
+    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+    sink.append(source);
+}
+
+fn get_prev_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Song {
+    match play_mode {
+        _ => {
+            let mut this_index: usize = 0;
+            let mut prev_index: usize = 0;
+            let max = play_list.len() - 1;
+            for (k, v) in play_list.iter_mut().enumerate() {
+                if v.playing == true {
+                    this_index = k;
+                    v.playing = false;
+                }
+            }
+            if this_index == 0 {
+                prev_index = max;
+                println!("已经是第一首歌曲!");
+                play_list[prev_index].playing = true;
+                return play_list[max].to_owned();
+            } else {
+                prev_index = this_index - 1;
+                play_list[prev_index].playing = true;
+                return play_list[prev_index].to_owned();
+            }
+        }
+    }
+}
+
+fn get_next_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Song {
+    match play_mode {
+        _ => {
+            let mut this_index: usize = 0;
+            let mut next_index: usize = 0;
+            let max = play_list.len() - 1;
+            for (k, v) in play_list.iter_mut().enumerate() {
+                if v.playing == true {
+                    this_index = k;
+                    v.playing = false;
+                }
+            }
+            if this_index == max {
+                next_index = 0;
+                println!("已经是最后一首歌曲!");
+                play_list[next_index].playing = true;
+                return play_list[next_index].to_owned();
+            } else {
+                next_index = this_index + 1;
+                play_list[next_index].playing = true;
+                return play_list[next_index].to_owned();
+            }
+        }
+    }
 }
