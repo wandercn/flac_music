@@ -7,5 +7,5 @@ edition = "2021"
 
 [dependencies]
 druid = { version = "0.7.0", features = ['im','svg','image','png'] }
-rodio = "0.16.0"
+rodio = { version = "0.16.0"}
 ffmpeg-next = "5.1.1"

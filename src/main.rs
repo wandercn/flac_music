@@ -17,7 +17,7 @@ use druid::widget::{
 use druid::widget::{CrossAxisAlignment, List};
 use druid::widget::{Flex, ProgressBar};
 use druid::{
-    commands, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
+    commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
     LocalizedString, MenuDesc, MenuItem, SysMods, Target, TextAlignment, WidgetExt,
 };
 use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
@@ -32,7 +32,7 @@ fn main() {
 
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
     let sink = Arc::new(rodio::Sink::try_new(&handle).unwrap());
-    let initState = AppState {
+    let init_state = AppState {
         app_status: Status::Stop,
         play_lists: Vector::new(),
         current_song: Song::default(),
@@ -47,8 +47,17 @@ fn main() {
     };
     let app = AppLauncher::with_window(win)
         .use_simple_logger()
+        .configure_env(|env, _| {
+            env.set(theme::WINDOW_BACKGROUND_COLOR, Color::WHITE);
+            env.set(theme::LABEL_COLOR, Color::BLACK);
+            env.set(theme::TEXT_SIZE_LARGE, 13.0);
+            env.set(theme::BUTTON_LIGHT, Color::WHITE);
+            env.set(theme::BUTTON_DARK, Color::WHITE);
+            env.set(theme::BACKGROUND_DARK, Color::WHITE);
+            env.set(theme::BACKGROUND_LIGHT, Color::WHITE);
+        })
         .delegate(MenuDelegate)
-        .launch(initState);
+        .launch(init_state);
 }
 
 struct MenuDelegate;
@@ -210,7 +219,7 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
 
 fn ui_builder() -> impl Widget<AppState> {
     let vol = Flex::row()
-        .with_child(Label::new("Volume"))
+        .with_child(Label::new(LocalizedString::new("Volume")))
         .with_child(
             Slider::new()
                 .with_range(0.0, 1.)
@@ -222,10 +231,15 @@ fn ui_builder() -> impl Widget<AppState> {
         )
         .align_right()
         .padding(10.0);
-    let search_text = TextBox::new()
-        .with_text_alignment(TextAlignment::Center)
-        .padding(10.0)
-        .lens(AppState::search_text);
+    let title_label = Label::dynamic(|d: &AppState, _env| {
+        if d.current_song.playing {
+            format!("{}   -   {}", d.current_song.title, d.current_song.artist)
+        } else {
+            "".to_owned()
+        }
+    })
+    .with_text_size(12.0)
+    .fix_width(80.);
     let contrl_tab = Container::new(
         Flex::row()
             .with_child(Button::new("|<<").lens(AppState::current_song).on_click(
@@ -239,40 +253,46 @@ fn ui_builder() -> impl Widget<AppState> {
                 },
             ))
             .with_default_spacer()
-            .with_child(Button::new("Play").lens(AppState::current_song).on_click(
-                |_ctx, data, _env| {
-                    if data.current_song.title.is_empty() {
-                        data.current_play_list[0].playing = true;
-                        data.current_song = data.current_play_list[0].clone();
-                    }
-                    if data.sink.is_paused() {
-                        data.sink.play();
-                    } else {
-                        if data.sink.len() == 1 || data.sink.empty() {
-                            println!("sink empty: {}", data.sink.len());
-                            data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                            data.sink.set_volume(data.volume as f32);
-                            set_paly_song(&data.current_song.file, &mut data.sink)
-                        } else {
-                            data.sink.play();
-                            println!("sink : {}", data.sink.len())
+            .with_child(
+                Button::new(LocalizedString::new("Play"))
+                    .lens(AppState::current_song)
+                    .on_click(|_ctx, data, _env| {
+                        if data.current_song.title.is_empty() {
+                            data.current_play_list[0].playing = true;
+                            data.current_song = data.current_play_list[0].clone();
                         }
-                    }
-                    println!("playing: {}", data.current_song.title);
-                },
-            ))
+                        if data.sink.is_paused() {
+                            data.sink.play();
+                        } else {
+                            if data.sink.len() == 1 || data.sink.empty() {
+                                println!("sink empty: {}", data.sink.len());
+                                data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                                data.sink.set_volume(data.volume as f32);
+                                set_paly_song(&data.current_song.file, &mut data.sink)
+                            } else {
+                                data.sink.play();
+                                println!("sink : {}", data.sink.len())
+                            }
+                        }
+                        println!("playing: {}", data.current_song.title);
+                    }),
+            )
             .with_default_spacer()
-            .with_child(Button::new("Pause").lens(AppState::current_song).on_click(
-                |_ctx, data, _env| {
-                    data.sink.pause();
-                },
-            ))
+            .with_child(
+                Button::new(LocalizedString::new("Pause"))
+                    .lens(AppState::current_song)
+                    .on_click(|_ctx, data, _env| {
+                        data.sink.pause();
+                    }),
+            )
             .with_default_spacer()
-            .with_child(Button::new("Stop").lens(AppState::current_song).on_click(
-                |_ctx, data, _env| {
-                    data.sink.stop();
-                },
-            ))
+            .with_child(
+                Button::new(LocalizedString::new("Stop"))
+                    .lens(AppState::current_song)
+                    .on_click(|_ctx, data, _env| {
+                        data.sink.stop();
+                    }),
+            )
             .with_default_spacer()
             .with_child(Button::new(">>|").lens(AppState::current_song).on_click(
                 |_ctx, data, _env| {
@@ -283,13 +303,9 @@ fn ui_builder() -> impl Widget<AppState> {
                     data.sink.set_volume(data.volume as f32);
                     set_paly_song(&data.current_song.file, &mut data.sink)
                 },
-            ))
-            .with_default_spacer()
-            .with_child(vol)
-            .with_default_spacer()
-            .padding(2.0),
+            )),
     )
-    .center();
+    .align_left();
 
     let progress = Slider::new()
         .with_range(0.0, 100.0)
@@ -297,15 +313,29 @@ fn ui_builder() -> impl Widget<AppState> {
         .lens(AppState::progress_rate);
 
     let playlab = Flex::column()
-        .with_child(Flex::row().with_child(contrl_tab))
-        .with_default_spacer();
-    let play_list_header = vector!["Playing", "Title", "Album", "Artist", "Date", "duration"];
+        .with_child(
+            Flex::row()
+                .with_child(contrl_tab)
+                .with_spacer(80.0)
+                .with_child(title_label)
+                .with_spacer(120.0)
+                .with_child(vol),
+        )
+        .cross_axis_alignment(CrossAxisAlignment::Center);
+    let play_list_header = vector![
+        LocalizedString::new("Playing"),
+        LocalizedString::new("Title"),
+        LocalizedString::new("Album"),
+        LocalizedString::new("Artist"),
+        LocalizedString::new("Duration"),
+        LocalizedString::new("Date"),
+    ];
     let mut header: Flex<AppState> = Flex::row()
         .with_default_spacer()
-        .with_child(Label::new(play_list_header[0]))
+        .with_child(Label::new(LocalizedString::new("Playing")))
         .with_spacer(70.0);
     for lab in play_list_header.iter().skip(1) {
-        header.add_child(Label::new(*lab));
+        header.add_child(Label::new(lab.to_owned()));
         header.add_spacer(180.0);
     }
 
@@ -411,7 +441,7 @@ fn make_item() -> impl Widget<Song> {
             .with_child(
                 Label::dynamic(|d: &Song, _| {
                     if d.playing {
-                        "playing".to_owned()
+                        "|>".to_string()
                     } else {
                         "".to_owned()
                     }
@@ -422,7 +452,7 @@ fn make_item() -> impl Widget<Song> {
             .with_child(
                 Label::dynamic(|d: &Song, _| d.title.to_owned())
                     .fix_width(120.0)
-                    .on_click(move |_ctx, data, _env| {
+                    .on_click(move |ctx, data, _env| {
                         data.playing = true;
                     }),
             )
@@ -431,9 +461,9 @@ fn make_item() -> impl Widget<Song> {
             .with_spacer(100.0)
             .with_child(Label::dynamic(|d: &Song, _| d.artist.to_owned()).fix_width(120.0))
             .with_spacer(100.0)
-            .with_child(Label::dynamic(|d: &Song, _| d.date.to_owned()).fix_width(120.0))
-            .with_spacer(100.0)
             .with_child(Label::dynamic(|d: &Song, _| d.duration.to_string()).fix_width(120.0))
+            .with_spacer(100.0)
+            .with_child(Label::dynamic(|d: &Song, _| d.date.to_owned()).fix_width(120.0))
             .with_spacer(100.0),
     )
 }
