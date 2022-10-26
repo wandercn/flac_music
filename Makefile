@@ -31,7 +31,6 @@ $(TARGET)-universal:
 	MACOSX_DEPLOYMENT_TARGET="0.10" cargo build --profile release --target=x86_64-apple-darwin
 	MACOSX_DEPLOYMENT_TARGET="0.10" cargo build --profile release --target=aarch64-apple-darwin
 	@lipo target/{x86_64,aarch64}-apple-darwin/release/$(TARGET) -create -output $(APP_BINARY)
-	/usr/bin/codesign -vvv --deep --entitlements $(ASSETS_DIR)/entitlements.plist --strict --options=runtime --force -s FAC8FBEA99169DC1980731029648F110628D6A32 $(APP_BINARY)
 
 app: $(APP_NAME)-native ## Create a Lapce.app
 app-universal: $(APP_NAME)-universal ## Create a universal Lapce.app
@@ -44,6 +43,7 @@ $(APP_NAME)-%: $(TARGET)-%
 	@echo "Created '$(APP_NAME)' in '$(APP_DIR)'"
 	xattr -c $(APP_DIR)/$(APP_NAME)/Contents/Info.plist
 	xattr -c $(APP_DIR)/$(APP_NAME)/Contents/Resources/flac_music.icns
+	xattr -c $(APP_DIR)/$(APP_NAME)/Contents/Resources/i18n/zh-CN/builtin.ftl
 
 dmg: $(DMG_NAME)-native ## Create a Lapce.dmg
 dmg-universal: $(DMG_NAME)-universal ## Create a universal Lapce.dmg
