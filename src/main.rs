@@ -1,28 +1,25 @@
 use std::io::BufReader;
 use std::path::Path;
-use std::rc::Rc;
-use std::sync::Arc;
-use std::thread::{self, spawn};
-use std::time::Duration;
+use std::sync::{self, Arc, Mutex};
+use std::thread::{self, sleep, spawn};
 use std::{fs, io};
 
 use druid::im::vector;
 
-use druid::piet::Text;
-use druid::text::TextInput;
 use druid::widget::{
-    prelude::*, Align, Button, Container, Label, LabelText, ListIter, Padding, Scroll, Slider,
-    Split, TextBox,
+    prelude::*, Button, Container, Label, LabelText, Padding, Scroll, Slider, Split, TextBox,
 };
 use druid::widget::{CrossAxisAlignment, List};
 use druid::widget::{Flex, ProgressBar};
 use druid::{
-    commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
-    LocalizedString, MenuDesc, MenuItem, SysMods, Target, TextAlignment, WidgetExt,
+    commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled, LensExt,
+    LocalizedString, MenuDesc, MenuItem, SysMods, Target, WidgetExt,
 };
 use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
+
+use ffmpeg::ffi::swscale_license;
 use ffmpeg_next as ffmpeg;
-use rodio::OutputStreamHandle;
+use rodio::{OutputStreamHandle, Source};
 fn main() {
     let win = WindowDesc::new(ui_builder)
         .menu(make_menu())
@@ -31,11 +28,11 @@ fn main() {
         .show_titlebar(true);
 
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-    let sink = Arc::new(rodio::Sink::try_new(&handle).unwrap());
+    let sink = Arc::new(Mutex::new(rodio::Sink::try_new(&handle).unwrap()));
     let init_state = AppState {
         app_status: Status::Stop,
         play_lists: Vector::new(),
-        current_song: Song::default(),
+        current_song: Arc::new(Mutex::new(Song::default())),
         volume: 0.3,
         progress_rate: 0.5,
         play_mode: Modes::Order,
@@ -225,85 +222,140 @@ fn ui_builder() -> impl Widget<AppState> {
                 .with_range(0.0, 1.)
                 .lens(AppState::volume)
                 .on_click(|_ctx, data, _env| {
-                    data.sink.set_volume(data.volume as f32);
+                    data.sink.lock().unwrap().set_volume(data.volume as f32);
                     println!("音量大小: {}", data.volume);
                 }),
         )
         .align_right()
         .padding(10.0);
+
     let title_label = Label::dynamic(|d: &AppState, _env| {
-        if d.current_song.playing {
-            format!("{}   -   {}", d.current_song.title, d.current_song.artist)
+        let current = d.current_song.lock().unwrap();
+        if current.playing {
+            format!("{}   -   {}", current.title, current.artist)
         } else {
             "".to_owned()
         }
     })
     .with_text_size(12.0)
-    .fix_width(80.);
+    .fix_width(80.)
+    .on_click(|ctx, data, env| {
+        println!("1111:{}", data.current_song.lock().unwrap().title);
+        ctx.children_changed()
+    });
+
     let contrl_tab = Container::new(
         Flex::row()
-            .with_child(Button::new("|<<").lens(AppState::current_song).on_click(
-                |_ctx, data, _env| {
-                    let current =
-                        get_prev_one(data.play_mode.to_owned(), &mut data.current_play_list);
-                    data.current_song = current;
-                    data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                    data.sink.set_volume(data.volume as f32);
-                    set_paly_song(&data.current_song.file, &mut data.sink)
-                },
-            ))
+            .with_child(
+                Button::new("|<<")
+                    .lens(AppState::current_play_list)
+                    .on_click(|_ctx, data, _env| {
+                        let current =
+                            get_prev_one(data.play_mode.to_owned(), &mut data.current_play_list);
+                        *data.current_song.lock().unwrap() = current;
+                        // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                        data.sink.lock().unwrap().set_volume(data.volume as f32);
+                        // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink)
+                    }),
+            )
             .with_default_spacer()
             .with_child(
                 Button::new(LocalizedString::new("Play"))
-                    .lens(AppState::current_song)
+                    .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
-                        if data.current_song.title.is_empty() {
-                            data.current_play_list[0].playing = true;
-                            data.current_song = data.current_play_list[0].clone();
-                        }
-                        if data.sink.is_paused() {
-                            data.sink.play();
+                        // let (tx, rx) = mpsc::channel::<Song>();
+                        // if data.current_song.lock().unwrap().title.is_empty() {
+                        //     data.current_play_list[0].playing = true;
+                        //     *data.current_song.lock().unwrap() = data.current_play_list[0].clone();
+                        // }
+                        if data.sink.lock().unwrap().is_paused() {
+                            data.sink.lock().unwrap().play();
                         } else {
-                            if data.sink.len() == 1 || data.sink.empty() {
-                                println!("sink empty: {}", data.sink.len());
-                                data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                                data.sink.set_volume(data.volume as f32);
-                                set_paly_song(&data.current_song.file, &mut data.sink)
-                            } else {
-                                data.sink.play();
-                                println!("sink : {}", data.sink.len())
+                            if data.sink.lock().unwrap().empty() {
+                                println!("sink empty: {}", data.sink.lock().unwrap().len());
+                                *data.sink.lock().unwrap() =
+                                    rodio::Sink::try_new(&data.stream).unwrap();
+
+                                data.sink.lock().unwrap().set_volume(data.volume as f32);
+
+                                let stream = data.stream.clone();
+                                // set_paly_song(&data.current_song.file, &mut data.sink);
+                                let temp_sink = Arc::clone(&data.sink);
+                                let mut list = data.current_play_list.clone();
+                                let m = Arc::clone(&mut data.current_song);
+                                let hand = spawn(move || {
+                                    let mut count = 1;
+                                    while count < list.len() {
+                                        if temp_sink.lock().unwrap().empty() {
+                                            count += 1;
+                                            if let Some(mut cur) = list.pop_front() {
+                                                println!("staring...");
+                                                cur.playing = true;
+                                                *m.lock().expect("lock error") = cur;
+                                                set_paly_song(
+                                                    &m.lock().unwrap().file,
+                                                    &temp_sink.lock().unwrap(),
+                                                );
+
+                                                println!("add song: {}", m.lock().unwrap().title);
+                                                // temp_sink.lock().unwrap().sleep_until_end();
+                                            }
+                                        }
+                                    }
+                                    // let mut is_end = false;
+
+                                    // is_end = true;
+                                    // while !temp_sink.lock().unwrap().empty() && is_end {
+                                    //     println!("staring...");
+                                    //     if temp_sink.lock().unwrap().len() == 1 {
+                                    //         *m.lock().expect("lock error") =
+                                    //             get_next_one(Modes::Order, &mut list);
+                                    //         set_paly_song(
+                                    //             &m.lock().unwrap().file,
+                                    //             &temp_sink.lock().unwrap(),
+                                    //         );
+                                    //         println!("add song: {}", m.lock().unwrap().title);
+                                    //         temp_sink.lock().unwrap().sleep_until_end();
+                                    //     }
+                                    //     sleep(std::time::Duration::from_secs(2));
+                                    // }
+                                    println!("ending");
+                                });
                             }
                         }
-                        println!("playing: {}", data.current_song.title);
                     }),
             )
             .with_default_spacer()
             .with_child(
                 Button::new(LocalizedString::new("Pause"))
-                    .lens(AppState::current_song)
+                    .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
-                        data.sink.pause();
+                        data.sink.lock().unwrap().pause();
                     }),
             )
             .with_default_spacer()
             .with_child(
                 Button::new(LocalizedString::new("Stop"))
-                    .lens(AppState::current_song)
+                    .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
-                        data.sink.stop();
+                        // data.sink.lock().unwrap().stop();
+                        *data.sink.lock().unwrap() = rodio::Sink::try_new(&data.stream).unwrap();
                     }),
             )
             .with_default_spacer()
-            .with_child(Button::new(">>|").lens(AppState::current_song).on_click(
-                |_ctx, data, _env| {
-                    let current =
-                        get_next_one(data.play_mode.to_owned(), &mut data.current_play_list);
-                    data.current_song = current;
-                    data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                    data.sink.set_volume(data.volume as f32);
-                    set_paly_song(&data.current_song.file, &mut data.sink)
-                },
-            )),
+            .with_child(
+                Button::new(">>|")
+                    .lens(AppState::current_play_list)
+                    .on_click(|_ctx, data, _env| {
+                        let current =
+                            get_next_one(data.play_mode.to_owned(), &mut data.current_play_list);
+                        *data.current_song.lock().unwrap() = current;
+                        // data.current_song = Arc::new(Mutex::new(current));
+                        // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                        data.sink.lock().unwrap().set_volume(data.volume as f32);
+                        // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink)
+                    }),
+            ),
     )
     .align_left();
 
@@ -354,31 +406,39 @@ fn ui_builder() -> impl Widget<AppState> {
     Container::new(
         Split::rows(
             playlab,
-            Split::rows(header, play_list)
-                .split_point(0.05)
-                .on_click(|_ctx, data, _env| {
-                    for x in data.current_play_list.iter_mut() {
-                        if x.playing {
-                            data.current_song = Song {
-                                title: x.title.to_string(),
-                                album: x.album.to_string(),
-                                artist: x.artist.to_string(),
-                                file: x.file.to_string(),
-                                date: x.date.to_string(),
-                                duration: x.duration,
-                                playing: x.playing,
-                            };
+            Split::rows(header, play_list).split_point(0.05), // .on_click(|_ctx, data, _env| {
+                                                              //     for x in data.current_play_list.iter_mut() {
+                                                              //         if x.playing {
+                                                              //             *data.current_song.lock().unwrap() = Song {
+                                                              //                 title: x.title.to_string(),
+                                                              //                 album: x.album.to_string(),
+                                                              //                 artist: x.artist.to_string(),
+                                                              //                 file: x.file.to_string(),
+                                                              //                 date: x.date.to_string(),
+                                                              //                 duration: x.duration,
+                                                              //                 playing: x.playing,
+                                                              //             };
 
-                            data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                            data.sink.set_volume(data.volume as f32);
-                            set_paly_song(&data.current_song.file, &mut data.sink);
-                            x.playing = false;
-                        }
-                    }
-                }),
+                                                              //             // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
+                                                              //             data.sink.lock().unwrap().set_volume(data.volume as f32);
+                                                              //             // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink);
+                                                              //         }
+                                                              //     }
+                                                              // }),
         )
         .split_point(0.1),
     )
+    .on_click(|ctx, data, _env| {
+        for v in data.current_play_list.iter_mut() {
+            if v.title.same(&data.current_song.lock().unwrap().title) {
+                v.playing = true;
+                println!("x: {} status: {}", v.title, v.playing);
+            } else {
+                v.playing = false;
+            }
+        }
+        ctx.children_changed();
+    })
 }
 
 #[derive(Data, Lens, Clone)]
@@ -386,8 +446,8 @@ struct AppState {
     music_dir: String,
     app_status: Status,
     play_lists: Vector<PlayList>,
-    current_song: Song,
-    sink: Arc<rodio::Sink>,
+    current_song: Arc<Mutex<Song>>,
+    sink: Arc<Mutex<rodio::Sink>>,
     progress_rate: f64,
     current_play_list: Vector<Song>,
     volume: f64,
@@ -468,10 +528,19 @@ fn make_item() -> impl Widget<Song> {
     )
 }
 
-fn set_paly_song<'a>(f: &'a str, sink: &'a mut Arc<rodio::Sink>) {
+fn set_paly_song<'a>(f: &'a str, sink: &'a rodio::Sink) {
     let file = std::fs::File::open(f).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
     sink.append(source);
+    if sink.empty() {
+        println!("is stop");
+    }
+}
+
+fn paly_song<'a>(f: &'a str, output: &'a Arc<OutputStreamHandle>) {
+    let file = std::fs::File::open(f).unwrap();
+    let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
+    output.play_raw(source.convert_samples()).unwrap();
 }
 
 fn get_prev_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Song {
