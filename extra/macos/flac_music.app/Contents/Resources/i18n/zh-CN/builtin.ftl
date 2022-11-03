@@ -1,0 +1,12 @@
+Playing = 正在播放
+Title = 标题
+Album = 专辑
+Artist = 艺人
+Date = 日期
+Duration = 时长
+Volume = 音量
+Play = 播放
+Pause = 暂停
+Stop = 停止
+File = 文件
+Import = 导入

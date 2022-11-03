@@ -13,7 +13,7 @@ use std::fs;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::thread::spawn;
+use std::thread::{sleep, spawn};
 
 fn main() {
     let win = WindowDesc::new(ui_builder)
@@ -367,6 +367,7 @@ fn ui_builder() -> impl Widget<AppState> {
                                                 }
                                             }
                                         }
+                                        sleep(std::time::Duration::from_secs(1));
                                     }
                                 });
                             }
