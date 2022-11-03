@@ -68,7 +68,7 @@ impl AppDelegate<AppState> for MenuDelegate {
             println!("file path: {:?}", path.display());
             data.music_dir = path.display().to_string();
             println!("{}", data.music_dir);
-            data.current_play_list = load_files(&data.music_dir);
+            data.current_play_list.extend(load_files(&data.music_dir));
             return Handled::Yes;
         }
         Handled::No
