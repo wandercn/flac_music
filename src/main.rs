@@ -1,25 +1,20 @@
-use std::io::BufReader;
-use std::path::Path;
-use std::sync::{self, Arc, Mutex};
-use std::thread::{self, sleep, spawn};
-use std::{fs, io};
-
 use druid::im::vector;
-
-use druid::widget::{
-    prelude::*, Button, Container, Label, LabelText, Padding, Scroll, Slider, Split, TextBox,
-};
+use druid::widget::Flex;
+use druid::widget::{prelude::*, Button, Container, Label, Padding, Scroll, Slider, Split};
 use druid::widget::{CrossAxisAlignment, List};
-use druid::widget::{Flex, ProgressBar};
 use druid::{
-    commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled, LensExt,
+    commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
     LocalizedString, MenuDesc, MenuItem, SysMods, Target, WidgetExt,
 };
 use druid::{im::Vector, AppLauncher, Data, Lens, Widget, WindowDesc};
-
-use ffmpeg::ffi::swscale_license;
 use ffmpeg_next as ffmpeg;
 use rodio::{OutputStreamHandle, Source};
+use std::fs;
+use std::io::BufReader;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::thread::spawn;
+
 fn main() {
     let win = WindowDesc::new(ui_builder)
         .menu(make_menu())
@@ -28,7 +23,7 @@ fn main() {
         .show_titlebar(true);
 
     let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-    let sink = Arc::new(Mutex::new(rodio::Sink::try_new(&handle).unwrap()));
+    let play_sink = Arc::new(Mutex::new(rodio::Sink::try_new(&handle).unwrap()));
     let init_state = AppState {
         app_status: Arc::new(Mutex::new(Status::Stop)),
         play_lists: Vector::new(),
@@ -37,9 +32,8 @@ fn main() {
         progress_rate: 0.5,
         play_mode: Modes::Order,
         current_play_list: vector![],
-        search_text: "search".into(),
         music_dir: "".to_owned(),
-        sink: sink,
+        sink: play_sink,
         stream: Arc::new(handle),
     };
     let app = AppLauncher::with_window(win)
@@ -124,7 +118,6 @@ fn load_files(dir: &str) -> Vector<Song> {
     files.sort();
     for i in &files {
         let s = get_song_meta(i);
-        println!("song: {:?}", s);
         songs.push_back(s);
     }
     songs
@@ -157,7 +150,7 @@ fn get_song_meta(f: &str) -> Song {
 }
 
 fn is_music_file(f: &str) -> bool {
-    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".m4a", ".ogg", ".wav", ".ape"];
+    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".ogg", ".wav"];
     for x in &music_exts {
         if f.ends_with(x) {
             return true;
@@ -215,7 +208,8 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
 }
 
 fn ui_builder() -> impl Widget<AppState> {
-    let vol = Flex::row()
+    // 音量大小调节控件
+    let volume = Flex::row()
         .with_child(Label::new(LocalizedString::new("Volume")))
         .with_child(
             Slider::new()
@@ -223,13 +217,13 @@ fn ui_builder() -> impl Widget<AppState> {
                 .lens(AppState::volume)
                 .on_click(|_ctx, data, _env| {
                     data.sink.lock().unwrap().set_volume(data.volume as f32);
-                    println!("音量大小: {}", data.volume);
                 }),
         )
         .align_right()
         .padding(10.0);
 
-    let title_label = Label::dynamic(|d: &AppState, _env| {
+    // 当天歌曲名称显示
+    let current_song_title = Label::dynamic(|d: &AppState, _env| {
         let current = d.current_song.lock().unwrap();
         if current.playing {
             format!("{}   -   {}", current.title, current.artist)
@@ -238,84 +232,83 @@ fn ui_builder() -> impl Widget<AppState> {
         }
     })
     .with_text_size(12.0)
-    .fix_width(80.)
-    .on_click(|ctx, data, env| {
-        println!("1111:{}", data.current_song.lock().unwrap().title);
-        ctx.children_changed()
-    });
+    .fix_width(80.);
 
-    let contrl_tab = Container::new(
+    // 播放控制按钮
+    let play_control = Container::new(
         Flex::row()
             .with_child(
+                // 上一首按钮
                 Button::new("|<<")
                     .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
+                        // 通过点击操作主动更新，当前歌曲状态和播放列表标记。
                         if let Some(current) =
-                            get_prev_one(data.play_mode.to_owned(), &mut data.current_play_list)
+                            prev_song(data.play_mode.to_owned(), &mut data.current_play_list)
                         {
                             *data.current_song.lock().unwrap() = current;
-                            // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
                             data.sink.lock().unwrap().set_volume(data.volume as f32);
                             *data.app_status.lock().unwrap() = Status::Prev;
                         }
-                        // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink)
                     }),
             )
             .with_default_spacer()
             .with_child(
+                // 播放按钮
                 Button::new(LocalizedString::new("Play"))
                     .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
+                        *data.app_status.lock().unwrap() = Status::Stop;
                         *data.app_status.lock().unwrap() = Status::Play;
-                        // let (tx, rx) = mpsc::channel::<Song>();
-                        // if data.current_song.lock().unwrap().title.is_empty() {
-                        //     data.current_play_list[0].playing = true;
-                        //     *data.current_song.lock().unwrap() = data.current_play_list[0].clone();
-                        // }
                         if data.sink.lock().unwrap().is_paused() {
                             data.sink.lock().unwrap().play();
                         } else {
                             if data.sink.lock().unwrap().empty() {
-                                println!("sink empty: {}", data.sink.lock().unwrap().len());
                                 *data.sink.lock().unwrap() =
                                     rodio::Sink::try_new(&data.stream).unwrap();
-
                                 data.sink.lock().unwrap().set_volume(data.volume as f32);
 
                                 let stream = data.stream.clone();
-                                // set_paly_song(&data.current_song.file, &mut data.sink);
-                                let temp_sink = Arc::clone(&data.sink);
-                                let mut list = data.current_play_list.clone();
-                                let m = Arc::clone(&mut data.current_song);
+                                let play_sink = Arc::clone(&data.sink);
+                                let mut play_list = data.current_play_list.clone();
+                                let current_song = Arc::clone(&mut data.current_song);
                                 let app_status = Arc::clone(&mut data.app_status);
-                                let hand = spawn(move || {
-                                    let mut count = 1;
-                                    while count < list.len()
+
+                                // 启动单独进程进行进行播放列表内歌曲按顺序播放
+                                spawn(move || {
+                                    // count 已播放歌曲计数
+                                    let mut count = 0;
+                                    // 以歌曲数总数为最大数，有限循环播放。play_sink.len最大为1，播放完一首，当len==0时，再加入下一首歌曲。
+                                    // 上一首，下一首，切歌操作，以app_status 的状态切换来控制。
+                                    while count < play_list.len()
                                         && !app_status.lock().unwrap().same(&Status::Stop)
                                     {
-                                        if temp_sink.lock().unwrap().empty() {
+                                        if play_sink.lock().unwrap().empty() {
+                                            // 当前播放歌曲为空时，播放第一首歌曲，进入下一次循环。
+                                            if current_song.lock().unwrap().title.is_empty() {
+                                                let mut cur = play_list.get_mut(0).unwrap();
+                                                cur.playing = true;
+                                                *current_song.lock().unwrap() = cur.to_owned();
+                                                add_paly_song(
+                                                    &current_song.lock().unwrap().file,
+                                                    &play_sink.lock().unwrap(),
+                                                );
+                                                continue;
+                                            }
                                             let mut status = app_status.lock().unwrap();
-                                            println!("0000000----{:?}", status);
                                             match *status {
                                                 Status::Play => {
                                                     count += 1;
-                                                    println!("0000-play count: {}", count);
                                                     if let Some(mut cur) =
-                                                        get_next_one(Modes::Order, &mut list)
+                                                        next_song(Modes::Order, &mut play_list)
                                                     {
-                                                        println!("staring...");
                                                         cur.playing = true;
-                                                        *m.lock().expect("lock error") = cur;
-                                                        set_paly_song(
-                                                            &m.lock().unwrap().file,
-                                                            &temp_sink.lock().unwrap(),
+                                                        *current_song.lock().expect("lock error") =
+                                                            cur;
+                                                        add_paly_song(
+                                                            &current_song.lock().unwrap().file,
+                                                            &play_sink.lock().unwrap(),
                                                         );
-
-                                                        println!(
-                                                            "add song: {}",
-                                                            m.lock().unwrap().title
-                                                        );
-                                                        // temp_sink.lock().unwrap().sleep_until_end();
                                                     }
                                                 }
 
@@ -323,148 +316,58 @@ fn ui_builder() -> impl Widget<AppState> {
                                                 Status::Suspend => (),
                                                 Status::Next => {
                                                     count += 1;
-                                                    println!("00000-next count: {}", count);
                                                     if let Some(mut cur) =
-                                                        get_next_one(Modes::Order, &mut list)
+                                                        next_song(Modes::Order, &mut play_list)
                                                     {
-                                                        println!("staring...");
                                                         cur.playing = true;
-                                                        *m.lock().expect("lock error") = cur;
-                                                        set_paly_song(
-                                                            &m.lock().unwrap().file,
-                                                            &temp_sink.lock().unwrap(),
+                                                        *current_song.lock().expect("lock error") =
+                                                            cur;
+                                                        add_paly_song(
+                                                            &current_song.lock().unwrap().file,
+                                                            &play_sink.lock().unwrap(),
                                                         );
-
-                                                        println!(
-                                                            "add song: {}",
-                                                            m.lock().unwrap().title
-                                                        );
-                                                        // temp_sink.lock().unwrap().sleep_until_end();
                                                     }
                                                     *status = Status::Play;
                                                 }
                                                 Status::Prev => {
                                                     count -= 1;
-                                                    println!("00000-Prev count: {}", count);
                                                     if let Some(mut cur) =
-                                                        get_prev_one(Modes::Order, &mut list)
+                                                        prev_song(Modes::Order, &mut play_list)
                                                     {
-                                                        println!("staring...");
                                                         cur.playing = true;
-                                                        *m.lock().expect("lock error") = cur;
-                                                        set_paly_song(
-                                                            &m.lock().unwrap().file,
-                                                            &temp_sink.lock().unwrap(),
+                                                        *current_song.lock().expect("lock error") =
+                                                            cur;
+                                                        add_paly_song(
+                                                            &current_song.lock().unwrap().file,
+                                                            &play_sink.lock().unwrap(),
                                                         );
-
-                                                        println!(
-                                                            "add song: {}",
-                                                            m.lock().unwrap().title
-                                                        );
-                                                        // temp_sink.lock().unwrap().sleep_until_end();
                                                     }
                                                     *status = Status::Play;
                                                 }
                                             }
                                         }
-                                        if temp_sink.lock().unwrap().len() == 1 {
-                                            let mut status = app_status.lock().unwrap();
+                                        if play_sink.lock().unwrap().len() == 1 {
+                                            let status = app_status.lock().unwrap();
                                             match *status {
                                                 Status::Play => (),
 
                                                 Status::Stop => break,
                                                 Status::Suspend => (),
                                                 Status::Next => {
-                                                    println!("11111-next count: {}", count);
-                                                    temp_sink.lock().unwrap().stop();
-                                                    *temp_sink.lock().unwrap() =
+                                                    // rodio::sink stop后就无法重新播放，只能重新初始化rodio::Sink::try_new(&stream)。
+                                                    play_sink.lock().unwrap().stop();
+                                                    *play_sink.lock().unwrap() =
                                                         rodio::Sink::try_new(&stream).unwrap();
-                                                    // if let Some(mut cur) = list.pop_front() {
-                                                    //     println!("staring...");
-                                                    //     cur.playing = true;
-                                                    //     *m.lock().expect("lock error") = cur;
-                                                    //     set_paly_song(
-                                                    //         &m.lock().unwrap().file,
-                                                    //         &temp_sink.lock().unwrap(),
-                                                    //     );
-
-                                                    //     println!(
-                                                    //         "111 Next add song: {}",
-                                                    //         m.lock().unwrap().title
-                                                    //     );
-                                                    //     // temp_sink.lock().unwrap().sleep_until_end();
-                                                    // }
                                                 }
                                                 Status::Prev => {
-                                                    count -= 1;
-                                                    println!("11111-Prev count: {}", count);
-                                                    temp_sink.lock().unwrap().stop();
-                                                    *temp_sink.lock().unwrap() =
+                                                    // rodio::sink stop后就无法重新播放，只能重新初始化rodio::Sink::try_new(&stream)。
+                                                    play_sink.lock().unwrap().stop();
+                                                    *play_sink.lock().unwrap() =
                                                         rodio::Sink::try_new(&stream).unwrap();
-                                                    // if let Some(mut cur) = list.pop_front() {
-                                                    //     println!("staring...");
-                                                    //     cur.playing = true;
-                                                    //     *m.lock().expect("lock error") = cur;
-                                                    //     set_paly_song(
-                                                    //         &m.lock().unwrap().file,
-                                                    //         &temp_sink.lock().unwrap(),
-                                                    //     );
-
-                                                    //     println!(
-                                                    //         "1111 Prev add song: {}",
-                                                    //         m.lock().unwrap().title
-                                                    //     );
-                                                    //     // temp_sink.lock().unwrap().sleep_until_end();
-                                                    // }
                                                 }
                                             }
                                         }
-                                        // if temp_sink.lock().unwrap().len() == 1 {
-                                        //     let mut status = app_status.lock().unwrap();
-                                        //     match *status {
-                                        //         Status::Play => *status = Status::Play,
-                                        //         Status::Suspend => *status = Status::Play,
-                                        //         Status::Stop => break,
-                                        //         Status::Next => {
-                                        //             temp_sink.lock().unwrap().stop();
-                                        //             *temp_sink.lock().unwrap() =
-                                        //                 rodio::Sink::try_new(&stream).unwrap();
-                                        //             *app_status.lock().unwrap() = Status::Play;
-                                        //             println!(
-                                        //                 "111111-sink {}",
-                                        //                 temp_sink.lock().unwrap().empty()
-                                        //             );
-                                        //         }
-                                        //         Status::Prev => {
-                                        //             temp_sink.lock().unwrap().stop();
-                                        //             *temp_sink.lock().unwrap() =
-                                        //                 rodio::Sink::try_new(&stream).unwrap();
-                                        //             list.push_front(m.lock().unwrap().to_owned());
-                                        //             *app_status.lock().unwrap() = Status::Play;
-                                        //         }
-                                        //     }
-                                        // }
                                     }
-                                    // let mut is_end = false;
-
-                                    // is_end = true;
-                                    // while !temp_sink.lock().unwrap().empty() && is_end {
-                                    //     println!("staring...");
-                                    //     if temp_sink.lock().unwrap().len() == 1 {
-                                    //         *m.lock().expect("lock error") =
-                                    //             get_next_one(Modes::Order, &mut list);
-                                    //         set_paly_song(
-                                    //             &m.lock().unwrap().file,
-                                    //             &temp_sink.lock().unwrap(),
-                                    //         );
-                                    //         println!("add song: {}", m.lock().unwrap().title);
-                                    //         temp_sink.lock().unwrap().sleep_until_end();
-                                    //     }
-                                    //     sleep(std::time::Duration::from_secs(2));
-                                    // }
-
-                                    println!("count: {}", count);
-                                    println!("ending");
                                 });
                             }
                         }
@@ -472,14 +375,17 @@ fn ui_builder() -> impl Widget<AppState> {
             )
             .with_default_spacer()
             .with_child(
+                // 暂停按钮
                 Button::new(LocalizedString::new("Pause"))
                     .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
                         data.sink.lock().unwrap().pause();
+                        *data.app_status.lock().unwrap() = Status::Suspend;
                     }),
             )
             .with_default_spacer()
             .with_child(
+                // 停止按钮
                 Button::new(LocalizedString::new("Stop"))
                     .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
@@ -489,18 +395,17 @@ fn ui_builder() -> impl Widget<AppState> {
             )
             .with_default_spacer()
             .with_child(
+                // 下一首按钮
                 Button::new(">>|")
                     .lens(AppState::current_play_list)
                     .on_click(|_ctx, data, _env| {
+                        // 通过点击事件,主动更新当前歌曲状态和播放列表标记。
                         if let Some(current) =
-                            get_next_one(data.play_mode.to_owned(), &mut data.current_play_list)
+                            next_song(data.play_mode.to_owned(), &mut data.current_play_list)
                         {
                             *data.current_song.lock().unwrap() = current;
-                            // data.current_song = Arc::new(Mutex::new(current));
-                            // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
                             data.sink.lock().unwrap().set_volume(data.volume as f32);
                             *data.app_status.lock().unwrap() = Status::Next;
-                            // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink)
                         }
                     }),
             ),
@@ -512,16 +417,18 @@ fn ui_builder() -> impl Widget<AppState> {
         .fix_width(800.0)
         .lens(AppState::progress_rate);
 
-    let playlab = Flex::column()
+    // 播放面板
+    let play_panel = Flex::column()
         .with_child(
             Flex::row()
-                .with_child(contrl_tab)
+                .with_child(play_control)
                 .with_spacer(80.0)
-                .with_child(title_label)
+                .with_child(current_song_title)
                 .with_spacer(120.0)
-                .with_child(vol),
+                .with_child(volume),
         )
         .cross_axis_alignment(CrossAxisAlignment::Center);
+
     let play_list_header = vector![
         LocalizedString::new("Playing"),
         LocalizedString::new("Title"),
@@ -530,15 +437,18 @@ fn ui_builder() -> impl Widget<AppState> {
         LocalizedString::new("Duration"),
         LocalizedString::new("Date"),
     ];
+
     let mut header: Flex<AppState> = Flex::row()
         .with_default_spacer()
         .with_child(Label::new(LocalizedString::new("Playing")))
         .with_spacer(70.0);
-    for lab in play_list_header.iter().skip(1) {
-        header.add_child(Label::new(lab.to_owned()));
+
+    for label in play_list_header.iter().skip(1) {
+        header.add_child(Label::new(label.to_owned()));
         header.add_spacer(180.0);
     }
 
+    // 播放列表
     let play_list = Scroll::new(
         Flex::column()
             .with_default_spacer()
@@ -551,36 +461,15 @@ fn ui_builder() -> impl Widget<AppState> {
     )
     .vertical();
 
+    // 组合完整UI
     Container::new(
-        Split::rows(
-            playlab,
-            Split::rows(header, play_list).split_point(0.05), // .on_click(|_ctx, data, _env| {
-                                                              //     for x in data.current_play_list.iter_mut() {
-                                                              //         if x.playing {
-                                                              //             *data.current_song.lock().unwrap() = Song {
-                                                              //                 title: x.title.to_string(),
-                                                              //                 album: x.album.to_string(),
-                                                              //                 artist: x.artist.to_string(),
-                                                              //                 file: x.file.to_string(),
-                                                              //                 date: x.date.to_string(),
-                                                              //                 duration: x.duration,
-                                                              //                 playing: x.playing,
-                                                              //             };
-
-                                                              //             // data.sink = Arc::new(rodio::Sink::try_new(&data.stream).unwrap());
-                                                              //             data.sink.lock().unwrap().set_volume(data.volume as f32);
-                                                              //             // set_paly_song(&data.current_song.lock().unwrap().file, &mut data.sink);
-                                                              //         }
-                                                              //     }
-                                                              // }),
-        )
-        .split_point(0.1),
+        Split::rows(play_panel, Split::rows(header, play_list).split_point(0.05)).split_point(0.1),
     )
     .on_click(|ctx, data, _env| {
+        // 同步当前歌曲，到列表同步显示正在播放的箭头(目前要点击窗口才能更新,待优化)
         for v in data.current_play_list.iter_mut() {
             if v.title.same(&data.current_song.lock().unwrap().title) {
                 v.playing = true;
-                println!("x: {} status: {}", v.title, v.playing);
             } else {
                 v.playing = false;
             }
@@ -600,7 +489,6 @@ struct AppState {
     current_play_list: Vector<Song>,
     volume: f64,
     play_mode: Modes,
-    search_text: String,
     stream: Arc<OutputStreamHandle>,
 }
 
@@ -622,7 +510,6 @@ struct PlayList {
 #[derive(Data, Lens, Default, Clone)]
 struct Current {
     name: String,
-
     cover_image: String,
 }
 
@@ -659,13 +546,7 @@ fn make_item() -> impl Widget<Song> {
                 .fix_width(80.0),
             )
             .with_spacer(50.0)
-            .with_child(
-                Label::dynamic(|d: &Song, _| d.title.to_owned())
-                    .fix_width(120.0)
-                    .on_click(move |ctx, data, _env| {
-                        data.playing = true;
-                    }),
-            )
+            .with_child(Label::dynamic(|d: &Song, _| d.title.to_owned()).fix_width(120.0))
             .with_spacer(100.0)
             .with_child(Label::dynamic(|d: &Song, _| d.album.to_owned()).fix_width(120.0))
             .with_spacer(100.0)
@@ -678,13 +559,11 @@ fn make_item() -> impl Widget<Song> {
     )
 }
 
-fn set_paly_song<'a>(f: &'a str, sink: &'a rodio::Sink) {
+// 加入歌曲到音轨sink
+fn add_paly_song<'a>(f: &'a str, sink: &'a rodio::Sink) {
     let file = std::fs::File::open(f).unwrap();
     let source = rodio::Decoder::new(BufReader::new(file)).unwrap();
     sink.append(source);
-    if sink.empty() {
-        println!("is stop");
-    }
 }
 
 fn paly_song<'a>(f: &'a str, output: &'a Arc<OutputStreamHandle>) {
@@ -693,7 +572,8 @@ fn paly_song<'a>(f: &'a str, output: &'a Arc<OutputStreamHandle>) {
     output.play_raw(source.convert_samples()).unwrap();
 }
 
-fn get_prev_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Option<Song> {
+// 获取上一首歌
+fn prev_song(play_mode: Modes, play_list: &mut Vector<Song>) -> Option<Song> {
     match play_mode {
         _ => {
             let mut this_index: usize = 0;
@@ -720,7 +600,8 @@ fn get_prev_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Option<Song> 
     }
 }
 
-fn get_next_one(play_mode: Modes, play_list: &mut Vector<Song>) -> Option<Song> {
+// 获取下一首歌曲
+fn next_song(play_mode: Modes, play_list: &mut Vector<Song>) -> Option<Song> {
     match play_mode {
         _ => {
             let mut this_index: usize = 0;
