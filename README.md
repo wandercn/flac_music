@@ -4,7 +4,7 @@ Music player based on druid GUI
 
 # 特性
 
-支持本地音乐文件 ".flac", ".mp3", ".ogg", ".wav"格式的播放。
+支持本地音乐文件 ".flac", ".mp3", ".wav", ".m4a" 格式的播放。
 
 支持多次导入文件夹，添加音乐文件列表。
 

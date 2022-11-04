@@ -1,7 +1,8 @@
 use druid::im::vector;
-use druid::widget::Flex;
+use druid::image::Progress;
 use druid::widget::{prelude::*, Button, Container, Label, Padding, Scroll, Slider, Split};
 use druid::widget::{CrossAxisAlignment, List};
+use druid::widget::{Flex, ProgressBar};
 use druid::{
     commands, theme, AppDelegate, Color, Command, DelegateCtx, FileDialogOptions, Handled,
     LocalizedString, MenuDesc, MenuItem, SysMods, Target, WidgetExt,
@@ -142,7 +143,7 @@ fn get_song_meta(f: &str) -> Song {
             song.duration =
                 (context.duration() as f64 / f64::from(ffmpeg::ffi::AV_TIME_BASE)).round();
         }
-        Err(error) => (),
+        Err(error) => println!("error:{}", error),
     }
 
     song.file = f.to_string();
@@ -150,7 +151,7 @@ fn get_song_meta(f: &str) -> Song {
 }
 
 fn is_music_file(f: &str) -> bool {
-    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".ogg", ".wav"];
+    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a"];
     for x in &music_exts {
         if f.ends_with(x) {
             return true;
@@ -180,7 +181,7 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
                     .hotkey(SysMods::Cmd, "o"),
                 ),
             )
-            .append_separator();
+            .append_separator()
     }
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     {
@@ -201,7 +202,7 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
                     .hotkey(SysMods::Cmd, "o"),
                 ),
             )
-            .append_separator();
+            .append_separator()
         // base = base.append(druid::platform_menus::win::file::default())
     }
     base
@@ -413,21 +414,17 @@ fn ui_builder() -> impl Widget<AppState> {
     )
     .align_left();
 
-    let progress = Slider::new()
-        .with_range(0.0, 100.0)
-        .fix_width(800.0)
-        .lens(AppState::progress_rate);
-
     // 播放面板
     let play_panel = Flex::column()
         .with_child(
             Flex::row()
                 .with_child(play_control)
-                .with_spacer(80.0)
+                .with_spacer(30.0)
                 .with_child(current_song_title)
-                .with_spacer(120.0)
+                .with_spacer(150.0)
                 .with_child(volume),
         )
+        .with_default_spacer()
         .cross_axis_alignment(CrossAxisAlignment::Center);
 
     let play_list_header = vector![
@@ -464,7 +461,11 @@ fn ui_builder() -> impl Widget<AppState> {
 
     // 组合完整UI
     Container::new(
-        Split::rows(play_panel, Split::rows(header, play_list).split_point(0.05)).split_point(0.1),
+        Split::rows(
+            play_panel.padding(10.),
+            Split::rows(header, play_list).split_point(0.05),
+        )
+        .split_point(0.1),
     )
     .on_click(|ctx, data, _env| {
         // 同步当前歌曲，到列表同步显示正在播放的箭头(目前要点击窗口才能更新,待优化)
