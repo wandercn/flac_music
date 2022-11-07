@@ -10,6 +10,8 @@ Music player based on druid GUI
 
 播放控制支持简单的，暂停，上一首，下一首等。
 
+支持二级子目录扫描导入文件列表
+
 本项目是用rust基于开源项目 druid 和 rodio创建。
 
 本人对rust GUI项目 druid比较感兴趣，目前项目比较粗糙，还将继续优化。

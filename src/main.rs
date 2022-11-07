@@ -110,6 +110,7 @@ impl AppDelegate<AppState> for MenuDelegate {
 fn load_files(dir: &str) -> Vector<Song> {
     let mut songs = vector![];
     let dir = Path::new(dir);
+    // 读取当前目录下的音乐文件。
     let mut files: Vec<String> = fs::read_dir(dir)
         .ok()
         .unwrap()
@@ -118,6 +119,25 @@ fn load_files(dir: &str) -> Vector<Song> {
         .map(|x| x.unwrap())
         .filter(|x| is_music_file(x))
         .collect();
+
+    // 读取目录下的子目录的音乐文件
+    if let Ok(other_dirs) = fs::read_dir(dir) {
+        for other in other_dirs {
+            if let Ok(d) = other {
+                if d.path().is_dir() {
+                    fs::read_dir(d.path())
+                        .ok()
+                        .unwrap()
+                        .map(|res| res.ok().map(|e| e.path().display().to_string()))
+                        .into_iter()
+                        .map(|x| x.unwrap())
+                        .filter(|x| is_music_file(x))
+                        .for_each(|f| songs.push_back(get_song_meta(&f)))
+                }
+            }
+        }
+    }
+
     files.sort();
     for i in &files {
         let s = get_song_meta(i);
