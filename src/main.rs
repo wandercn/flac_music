@@ -70,6 +70,8 @@ impl AppDelegate<AppState> for MenuDelegate {
             data.music_dir = path.display().to_string();
             println!("{}", data.music_dir);
             data.current_play_list.extend(load_files(&data.music_dir));
+            data.current_play_list
+                .sort_by(|left, right| left.album.cmp(&right.album));
             return Handled::Yes;
         }
         Handled::No
