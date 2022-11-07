@@ -40,3 +40,9 @@ Packing disk image...
 created: target/release/macos/flac_music.dmg
 Packed 'flac_music.app' in 'target/release/macos'
 ```
+
+# FAQ
+
+1. macOS系统限制，提示”提示文件已损坏”，处理方法。
+
+sudo xattr -d com.apple.quarantine /Applications/xxxx.app，注意：/Applications/xxxx.app 换成你的App路径。指定放行，删除com.apple.quarantine元数据文件，使您可以执行可执行文件。
