@@ -15,7 +15,9 @@ Music player based on druid GUI
 本项目是用rust基于开源项目 druid 和 rodio创建。
 
 本人对rust GUI项目 druid比较感兴趣，目前项目比较粗糙，还将继续优化。
+# test run app
 
+`cargo run`
 
 # pack app
 

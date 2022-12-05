@@ -8,7 +8,7 @@ description = "Music player based on druid GUI. 支持本地音乐文件 .flac, 
 homepage = "https://github.com/wandercn/flac_music"
 repository = "https://github.com/wandercn/flac_music"
 keywords = ["druid","flac-music","music-player","audio","music"]
-categories= ["Multimedia","Audio"]
+categories= ["accessibility","multimedia","audio"]
 readme = "README.md"
 
 [dependencies]
