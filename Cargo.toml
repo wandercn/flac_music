@@ -1,9 +1,15 @@
 [package]
 name = "flac_music"
+license = "MIT"
 version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["wandercn<wander@ffactory.org>"]
+description = "Music player based on druid GUI. 支持本地音乐文件 .flac, .mp3, .wav, .m4a 格式的播放器"
+homepage = "https://github.com/wandercn/flac_music"
+repository = "https://github.com/wandercn/flac_music"
+keywords = ["druid","flac-music","music-player","audio","music"]
+categories= ["Multimedia","Audio"]
+readme = "README.md"
 
 [dependencies]
 druid = { version = "0.7.0", features = ['im','svg','image','png'] }
