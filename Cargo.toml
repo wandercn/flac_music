@@ -1,7 +1,7 @@
 [package]
 name = "flac_music"
 license = "MIT"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["wandercn<wander@ffactory.org>"]
 description = "Music player based on druid GUI. 支持本地音乐文件 .flac, .mp3, .wav, .m4a 格式的播放器"
