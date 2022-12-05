@@ -1,3 +1,11 @@
+# [flac_music](https://github.com/wandercn/flac_music)
+
+[![crates.io](https://img.shields.io/crates/v/flac_music.svg?color=yellow)](https://crates.io/crates/flac_music)
+[![GPL3 licensed](https://img.shields.io/github/license/wandercn/flac_music.svg)](./LICENSE)
+[![Downloads of Crates.io](https://img.shields.io/crates/d/flac_music.svg)](https://crates.io/crates/flac_music)
+[![Lines of code](https://img.shields.io/tokei/lines/github/wandercn/flac_music.svg)](#)
+[![Build](https://img.shields.io/github/workflow/status/wandercn/flac_music/Rust.svg)](#)
+[![Languages](https://img.shields.io/github/languages/top/wandercn/flac_music.svg)](#)
 # flac_music
 Music player based on druid GUI
 
