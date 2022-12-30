@@ -19,7 +19,7 @@ use std::thread::{sleep, spawn};
 fn main() {
     let win = WindowDesc::new(ui_builder)
         .menu(make_menu())
-        .title("Flac Music v0.2.0")
+        .title("Flac Music v0.2.2")
         .window_size((1200., 600.))
         .show_titlebar(true);
 
