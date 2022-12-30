@@ -66,9 +66,7 @@ impl AppDelegate<AppState> for MenuDelegate {
         if let Some(e) = cmd.get(druid::commands::OPEN_FILE) {
             data.music_dir.clear();
             let path = e.path();
-            println!("file path: {:?}", path.display());
             data.music_dir = path.display().to_string();
-            println!("{}", data.music_dir);
             data.current_play_list.extend(load_files(&data.music_dir));
             data.current_play_list
                 .sort_by(|left, right| left.album.cmp(&right.album));
@@ -152,14 +150,30 @@ fn get_song_meta(f: &str) -> Song {
 
     match ffmpeg::format::input(&Path::new(f)) {
         Ok(context) => {
+            let mut is_has_title = false;
             for (k, v) in context.metadata().iter() {
                 let k_lower = k.to_lowercase();
                 match k_lower.as_str() {
-                    "title" => song.title = v.to_string(),
+                    "title" => {
+                        song.title = v.to_string();
+                        is_has_title = true
+                    }
                     "album" => song.album = v.to_string(),
                     "artist" => song.artist = v.to_string(),
                     "date" => song.date = v.to_string(),
-                    _ => (),
+                    _ => {
+                        if !is_has_title {
+                            song.title = {
+                                let split_strs: Vec<&str> = f.split("/").collect();
+                                let mut name: String = split_strs.last().unwrap().to_string();
+                                let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a"];
+                                for ext in music_exts {
+                                    name = name.trim_end_matches(ext).to_owned()
+                                }
+                                name
+                            }
+                        }
+                    }
                 }
             }
             song.duration =
