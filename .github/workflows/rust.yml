@@ -12,12 +12,12 @@ env:
 jobs:
   build:
 
-    runs-on: debian-latest
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v3
     - name: Install dependencies on debian
-      run: sudo apt-get update && sudo apt-get install cmake pkg-config libgtk-3-dev libasound2-dev libavutil-dev ffmpeg
+      run: sudo apt-get update && sudo apt-get install cmake pkg-config libgtk-3-dev libasound2-dev libavutil-dev ffmpeg*
     - name: Build
       run: cargo build --verbose
     - name: Run tests
