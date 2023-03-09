@@ -53,6 +53,20 @@ created: target/release/macos/flac_music.dmg
 Packed 'flac_music.app' in 'target/release/macos'
 ```
 
+# Install
+
+ linux (x86_64)
+
+Install on Debian/Ubuntu x86_64
+```
+ dpkg -i ./flac-music_v0.2.2_amd64.deb
+```
+ linux (arm64)
+
+Install on Debian/Ubuntu arm64
+```
+ dpkg -i ./flac-music_v0.2.2_arm64.deb
+```
 # FAQ
 
 1. macOS系统限制，提示”提示文件已损坏”，处理方法。
