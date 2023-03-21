@@ -25,11 +25,11 @@ help: ## Print this help message
 binary: $(TARGET)-native ## Build a release binary
 binary-universal: $(TARGET)-universal ## Build a universal release binary
 $(TARGET)-native:
-	MACOSX_DEPLOYMENT_TARGET="0.1.0" cargo build --profile release
+	MACOSX_DEPLOYMENT_TARGET="10.0.0" cargo build --profile release
 	@lipo target/release/$(TARGET) -create -output $(APP_BINARY)
 $(TARGET)-universal:
-	MACOSX_DEPLOYMENT_TARGET="0.10" cargo build --profile release --target=x86_64-apple-darwin
-	MACOSX_DEPLOYMENT_TARGET="0.10" cargo build --profile release --target=aarch64-apple-darwin
+	MACOSX_DEPLOYMENT_TARGET="10.0.0" cargo build --profile release --target=x86_64-apple-darwin
+	MACOSX_DEPLOYMENT_TARGET="10.0.0" cargo build --profile release --target=aarch64-apple-darwin
 	@lipo target/{x86_64,aarch64}-apple-darwin/release/$(TARGET) -create -output $(APP_BINARY)
 
 app: $(APP_NAME)-native ## Create a flac_music.app
