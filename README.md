@@ -26,9 +26,9 @@ Music player based on druid GUI
 
 # Todo
 
-- [] 打包ffmpeg依赖库文件到 flac_music.app/Contents/Frameworks
- 
-- [ ] Pack universal APP,适配aarch64+x86_64
+- [x] 打包ffmpeg依赖库文件到 flac_music.app/Contents/Frameworks
+
+- [x] Pack universal APP,适配aarch64+x86_64(version v0.2.3)
 
 # test run app
 
