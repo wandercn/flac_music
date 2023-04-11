@@ -6,6 +6,7 @@
 [![Lines of code](https://img.shields.io/tokei/lines/github/wandercn/flac_music.svg)](#)
 [![Build](https://img.shields.io/github/actions/workflow/status/wandercn/flac_music/.github/workflows/rust.yml?branch=master)](#)
 [![Languages](https://img.shields.io/github/languages/top/wandercn/flac_music.svg)](#)
+[![Downloads of releases](https://img.shields.io/github/downloads/wandercn/flac_music/total.svg?color=lavender)](https://github.com/wandercn/flac_music/releases/latest)
 # flac_music
 Music player based on druid GUI
 
