@@ -153,6 +153,10 @@ fn get_song_meta(f: &str) -> Song {
             let mut is_has_title = false;
             for (k, v) in context.metadata().iter() {
                 let k_lower = k.to_lowercase();
+                // 跳过???乱码的值
+                if v.starts_with("?") {
+                    continue;
+                }
                 match k_lower.as_str() {
                     "title" => {
                         song.title = v.to_string();
@@ -161,19 +165,18 @@ fn get_song_meta(f: &str) -> Song {
                     "album" => song.album = v.to_string(),
                     "artist" => song.artist = v.to_string(),
                     "date" => song.date = v.to_string(),
-                    _ => {
-                        if !is_has_title {
-                            song.title = {
-                                let split_strs: Vec<&str> = f.split("/").collect();
-                                let mut name: String = split_strs.last().unwrap().to_string();
-                                let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a"];
-                                for ext in music_exts {
-                                    name = name.trim_end_matches(ext).to_owned()
-                                }
-                                name
-                            }
-                        }
+                    _ => {}
+                }
+            }
+            if !is_has_title {
+                song.title = {
+                    let split_strs: Vec<&str> = f.split("/").collect();
+                    let mut name: String = split_strs.last().unwrap().to_string();
+                    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a", ".ogg"];
+                    for ext in music_exts {
+                        name = name.trim_end_matches(ext).to_owned()
                     }
+                    name
                 }
             }
             song.duration =
@@ -187,7 +190,7 @@ fn get_song_meta(f: &str) -> Song {
 }
 
 fn is_music_file(f: &str) -> bool {
-    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a"];
+    let music_exts: Vec<&str> = vec![".flac", ".mp3", ".wav", ".m4a", ".ogg"];
     for x in &music_exts {
         if f.ends_with(x) {
             return true;
@@ -202,9 +205,15 @@ fn make_menu<T: Data>() -> MenuDesc<T> {
         // base = base.append(druid::platform_menus::mac::menu_bar());
         base = MenuDesc::empty()
             .append(
-                MenuDesc::new(LocalizedString::new("flac-music-application-menu")).append(
-                    MenuItem::new(LocalizedString::new("Quit Flac Music"), commands::QUIT_APP),
-                ),
+                MenuDesc::new(LocalizedString::new("flac-music-application-menu"))
+                    .append(MenuItem::new(
+                        LocalizedString::new("Quit Flac Music"),
+                        commands::QUIT_APP,
+                    ))
+                    .append(
+                        MenuItem::new(LocalizedString::new("Import"), commands::SHOW_ABOUT)
+                            .hotkey(SysMods::Cmd, "o"),
+                    ),
             )
             .append_separator()
             .append(
